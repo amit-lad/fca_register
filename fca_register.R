@@ -13,8 +13,13 @@ library(httr2)
 library(jsonlite)
 
 # Rscript can start in the "C" locale, where write.csv mangles accented firm
-# names (e.g. Covéa becomes Cov<U+00E9>a). Force a UTF-8 locale.
-invisible(Sys.setlocale("LC_CTYPE", "en_US.UTF-8"))
+# names (e.g. Covéa becomes Cov<U+00E9>a). Switch to a UTF-8 locale if needed:
+# en_US.UTF-8 on macOS, C.UTF-8 on Linux (e.g. GitHub Actions runners).
+if (!l10n_info()$`UTF-8`) {
+  for (loc in c("en_US.UTF-8", "C.UTF-8")) {
+    if (suppressWarnings(Sys.setlocale("LC_CTYPE", loc)) != "") break
+  }
+}
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 

@@ -69,4 +69,8 @@ cat(sprintf(
   nrow(out), length(unique(out$frn)), out_file
 ))
 if (length(no_people) > 0) cat("Firms with no current individuals:", no_people, "\n")
-if (length(failed) > 0) cat("Firms that failed to load:", failed, "\n")
+if (length(failed) > 0) {
+  cat("Firms that failed to load:", failed, "\n")
+  # Fail so an automated run doesn't commit a partial result.
+  quit(status = 1)
+}

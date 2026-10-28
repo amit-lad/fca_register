@@ -30,4 +30,8 @@ write.csv(firms, out_file, row.names = FALSE, na = "", fileEncoding = "UTF-8")
 
 missing <- firms$frn[is.na(firms$company_id)]
 cat(sprintf("\nWrote %d rows to %s (%d not found)\n", nrow(firms), out_file, length(missing)))
-if (length(missing) > 0) cat("Not found:", missing, "\n")
+if (length(missing) > 0) {
+  cat("Not found:", missing, "\n")
+  # Fail so an automated run doesn't commit a partial result.
+  quit(status = 1)
+}
