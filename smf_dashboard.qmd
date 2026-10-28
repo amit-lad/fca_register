@@ -3,7 +3,8 @@ title: "FCA Register: SMF Roles at Firms"
 format:
   dashboard:
     orientation: rows
-    embed-resources: true
+    # Stylesheets and scripts go in _site/smf_dashboard_files/ rather than inside index.html.
+    embed-resources: false
     # Giving both a light and a dark theme adds the toggle to the navbar.
     # Matches practising-certificates.dashboards.amitlad.com.
     theme:
