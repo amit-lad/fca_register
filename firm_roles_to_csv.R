@@ -2,7 +2,8 @@
 # involved with the firm, one row per person per role.
 #
 # Every current role is included (not only SMF ones), and a role listed twice
-# for the same person is kept twice, as the register returns it.
+# for the same person is kept twice, as the register returns it. Each row's
+# scraped_on column is the UTC date its firm was fetched from the register.
 #
 # Usage:  Rscript firm_roles_to_csv.R [firms.csv] [smf_roles.csv]
 
@@ -52,7 +53,11 @@ results <- lapply(seq_len(nrow(firms)), function(i) {
   )
   Sys.sleep(0.5) # be gentle with the register
   if (nrow(roles) == 0) return(NULL)
-  cbind(firm[rep(1, nrow(roles)), c("frn", "firm_name", "company_id")], roles)
+  cbind(
+    firm[rep(1, nrow(roles)), c("frn", "firm_name", "company_id")],
+    roles,
+    scraped_on = format(Sys.time(), "%Y-%m-%d", tz = "UTC")
+  )
 })
 
 out <- do.call(rbind, results)

@@ -21,6 +21,11 @@ format:
 #| include: false
 # Data comes from firm_roles_to_csv.R. Re-render after re-running it.
 roles <- read.csv("smf_roles.csv", colClasses = "character", encoding = "UTF-8")
+
+# The most recent date any firm in the file was scraped.
+last_updated <- format(max(as.Date(roles$scraped_on)), "%d %b %Y")
+ojs_define(last_updated = last_updated)
+
 roles <- roles[startsWith(roles$smf_role, "SMF"), ]
 
 # Order roles SMF1, SMF2, ..., SMF20, SMF20a by number, then letter suffix.
@@ -150,6 +155,10 @@ Data: [FCA Financial Services Register](https://register.fca.org.uk/s/), individ
 # Results
 
 ## Row {height=110px}
+
+```{ojs}
+statBox("calendar-check", "Last updated", last_updated)
+```
 
 ```{ojs}
 statBox("person-badge", "SMF roles", filtered.length)
