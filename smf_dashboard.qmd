@@ -4,6 +4,14 @@ format:
   dashboard:
     orientation: rows
     embed-resources: true
+    # Giving both a light and a dark theme adds the toggle to the navbar.
+    # Matches practising-certificates.dashboards.amitlad.com.
+    theme:
+      light: flatly
+      dark: darkly
+    nav-buttons:
+      - text: amitlad.com
+        href: https://amitlad.com
     # Served as the site's home page from _site/ (see _quarto.yml).
     output-file: index.html
 ---
@@ -34,6 +42,57 @@ ojs_define(roles_csv = csv_text)
 //| output: false
 data = transpose(roles_raw)
 uniq = (xs) => Array.from(new Set(xs)).sort((a, b) => a.localeCompare(b))
+
+// Styling below follows the ifoa_practising_certificates dashboard.
+
+// One summary figure per card: a one-line label, then a Bootstrap icon beside
+// the large value. The value shrinks on narrow screens so it is never clipped.
+statBox = (icon, label, value) => htl.html`<div style="display: flex; flex-direction: column; justify-content: center; height: 100%; padding: 0 4px; min-width: 0;">
+  <style>
+    body { --stat-accent: #2a78d6; }
+    body.quarto-dark { --stat-accent: #3987e5; }
+  </style>
+  <div style="font-size: 0.85rem; opacity: 0.8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title=${label}>${label}</div>
+  <div style="display: flex; align-items: center; gap: 10px;">
+    <i class="bi bi-${icon}" style="font-size: 1.5rem; line-height: 1; color: var(--stat-accent);" aria-hidden="true"></i>
+    <span style="font-size: clamp(1.1rem, 2.4vw, 1.6rem); font-weight: 600; line-height: 1.2; white-space: nowrap;">${value.toLocaleString()}</span>
+  </div>
+</div>`
+
+noSelectStyle = htl.html`<style>
+  /* Hide the row-selection checkboxes Inputs.table adds as its first column. */
+  .no-select table { width: 100%; }
+  .no-select thead th { white-space: normal; word-break: normal; overflow-wrap: normal; vertical-align: bottom; }
+  .no-select table tr > :first-child { display: none; }
+  /* Highlight the row under the pointer. */
+  .no-select table tbody tr:hover td { background: rgba(127, 127, 127, 0.15); }
+</style>`
+
+// Redraws its content to fill the card. It measures the card's output area
+// (which Quarto sizes to the card) and positions the content absolutely, so
+// the content can't change the size being measured.
+fillCard = function(draw) {
+  const container = document.createElement("div");
+  container.style.cssText = "position: relative; width: 100%; height: 260px;";
+  const inner = document.createElement("div");
+  inner.style.cssText = "position: absolute; inset: 0;";
+  container.append(inner);
+  let frame;
+  const observer = new ResizeObserver(([entry]) => {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const width = Math.floor(entry.contentRect.width);
+      const height = Math.max(260, Math.floor(entry.contentRect.height) - 4);
+      container.style.height = `${height}px`;
+      if (width > 0) inner.replaceChildren(draw(width, height));
+    });
+  });
+  (function attach() {
+    if (!container.isConnected) return requestAnimationFrame(attach);
+    observer.observe(container.closest(".cell-output") ?? container);
+  })();
+  return container;
+}
 
 // Role choices follow the firm filter, so only roles that exist show.
 byFirm = data.filter(d => firm === "All firms" || d.firm_name === firm)
@@ -68,11 +127,19 @@ viewof person = Inputs.text({
 ```
 
 ```{ojs}
-DOM.download(
-  () => new Blob([roles_csv], {type: "text/csv;charset=utf-8"}),
-  "smf_roles.csv",
-  "Download full CSV"
-)
+// A themed Bootstrap button, so it stays visible in light and dark mode.
+{
+  const button = htl.html`<button class="btn btn-outline-primary btn-sm w-100 btn-quarto">Download full CSV</button>`;
+  button.onclick = () => {
+    const url = URL.createObjectURL(
+      new Blob([roles_csv], {type: "text/csv;charset=utf-8"})
+    );
+    const a = htl.html`<a href=${url} download="smf_roles.csv">`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  return button;
+}
 ```
 
 Downloads every row of `smf_roles.csv`, ignoring the filters above.
@@ -81,34 +148,38 @@ Data: [FCA Financial Services Register](https://register.fca.org.uk/s/), individ
 
 # Results
 
-## Row {height=18%}
+## Row {height=110px}
 
 ```{ojs}
-stat = (label, value) => htl.html`<div style="flex:1; padding:0.6rem 1rem; border-radius:6px; background:#eef3f8">
-  <div style="font-size:0.85rem; color:#4a5a6a">${label}</div>
-  <div style="font-size:1.8rem; font-weight:600; color:#1f3b57">${value.toLocaleString()}</div>
-</div>`
-
-htl.html`<div style="display:flex; gap:1rem; height:100%; align-items:stretch">
-  ${stat("SMF roles", filtered.length)}
-  ${stat("Individuals", new Set(filtered.map(d => d.individual_id)).size)}
-  ${stat("Firms", new Set(filtered.map(d => d.frn)).size)}
-</div>`
+statBox("person-badge", "SMF roles", filtered.length)
 ```
 
-## Row {height=82%}
+```{ojs}
+statBox("people", "Individuals", new Set(filtered.map(d => d.individual_id)).size)
+```
+
+```{ojs}
+statBox("building", "Firms", new Set(filtered.map(d => d.frn)).size)
+```
+
+## Row
 
 ```{ojs}
 //| title: "SMF roles"
-Inputs.table(filtered, {
-  columns: ["firm_name", "smf_role", "name", "individual_id"],
-  header: {
-    firm_name: "Firm",
-    smf_role: "Role",
-    name: "Name",
-    individual_id: "Individual id"
-  },
-  rows: 30,
-  layout: "auto"
-})
+fillCard((width, height) => htl.html`<div class="no-select">${noSelectStyle}
+  ${Inputs.table(filtered, {
+    height,
+    // Render every row up front: lazy loading on scroll doesn't trigger inside dashboard cards.
+    rows: filtered.length + 1,
+    columns: ["firm_name", "smf_role", "name", "individual_id"],
+    header: {
+      firm_name: "Firm",
+      smf_role: "Role",
+      name: "Name",
+      individual_id: "Individual id"
+    },
+    // Fixed widths keep every column on screen; the last takes any spare width.
+    width: {firm_name: 280, smf_role: 280, name: 200},
+    layout: "fixed"
+  })}</div>`)
 ```
