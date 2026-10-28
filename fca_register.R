@@ -12,6 +12,10 @@
 library(httr2)
 library(jsonlite)
 
+# Rscript can start in the "C" locale, where write.csv mangles accented firm
+# names (e.g. Covéa becomes Cov<U+00E9>a). Force a UTF-8 locale.
+invisible(Sys.setlocale("LC_CTYPE", "en_US.UTF-8"))
+
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
 base_url <- "https://register.fca.org.uk"

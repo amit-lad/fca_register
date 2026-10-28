@@ -12,7 +12,7 @@ args <- commandArgs(trailingOnly = TRUE)
 in_file <- if (length(args) > 0) args[1] else "firms.csv"
 out_file <- if (length(args) > 1) args[2] else "smf_roles.csv"
 
-firms <- read.csv(in_file, colClasses = "character")
+firms <- read.csv(in_file, colClasses = "character", encoding = "UTF-8")
 firms <- firms[firms$company_id != "", ]
 
 empty_roles <- data.frame(
@@ -56,7 +56,7 @@ results <- lapply(seq_len(nrow(firms)), function(i) {
 })
 
 out <- do.call(rbind, results)
-write.csv(out, out_file, row.names = FALSE, na = "")
+write.csv(out, out_file, row.names = FALSE, na = "", fileEncoding = "UTF-8")
 
 no_people <- setdiff(firms$frn, c(out$frn, failed))
 cat(sprintf(

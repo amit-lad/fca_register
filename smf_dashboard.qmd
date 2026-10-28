@@ -1,0 +1,114 @@
+---
+title: "FCA Register: SMF Roles at Firms"
+format:
+  dashboard:
+    orientation: rows
+    embed-resources: true
+    # Served as the site's home page from _site/ (see _quarto.yml).
+    output-file: index.html
+---
+
+```{r}
+#| include: false
+# Data comes from firm_roles_to_csv.R. Re-render after re-running it.
+roles <- read.csv("smf_roles.csv", colClasses = "character", encoding = "UTF-8")
+roles <- roles[startsWith(roles$smf_role, "SMF"), ]
+
+# Order roles SMF1, SMF2, ..., SMF20, SMF20a by number, then letter suffix.
+role_num <- as.integer(sub("^SMF(\\d+).*", "\\1", roles$smf_role))
+role_suffix <- sub("^SMF\\d+([a-z]*).*", "\\1", roles$smf_role)
+roles$role_rank <- match(
+  roles$smf_role,
+  unique(roles$smf_role[order(role_num, role_suffix, roles$smf_role)])
+)
+roles <- roles[order(tolower(roles$firm_name), roles$role_rank, roles$name), ]
+ojs_define(roles_raw = roles)
+
+# The download button serves the file exactly as on disk, not the filtered view.
+csv_text <- readChar("smf_roles.csv", file.size("smf_roles.csv"), useBytes = TRUE)
+Encoding(csv_text) <- "UTF-8"
+ojs_define(roles_csv = csv_text)
+```
+
+```{ojs}
+//| output: false
+data = transpose(roles_raw)
+uniq = (xs) => Array.from(new Set(xs)).sort((a, b) => a.localeCompare(b))
+
+// Role choices follow the firm filter, so only roles that exist show.
+byFirm = data.filter(d => firm === "All firms" || d.firm_name === firm)
+roleChoices = {
+  const rank = new Map(byFirm.map(d => [d.smf_role, d.role_rank]));
+  return [...rank.keys()].sort((a, b) => rank.get(a) - rank.get(b));
+}
+
+filtered = {
+  const q = person.trim().toLowerCase();
+  return byFirm.filter(d =>
+    (role === "All roles" || d.smf_role === role) &&
+    (q === "" ||
+      d.name.toLowerCase().includes(q) ||
+      d.individual_ref.toLowerCase().includes(q) ||
+      d.individual_id.toLowerCase().includes(q))
+  );
+}
+```
+
+# {.sidebar}
+
+```{ojs}
+viewof firm = Inputs.select(["All firms", ...uniq(data.map(d => d.firm_name))], {
+  label: "Firm"
+})
+viewof role = Inputs.select(["All roles", ...roleChoices], {label: "Role"})
+viewof person = Inputs.text({
+  label: "Individual",
+  placeholder: "Name, reference or id"
+})
+```
+
+```{ojs}
+DOM.download(
+  () => new Blob([roles_csv], {type: "text/csv;charset=utf-8"}),
+  "smf_roles.csv",
+  "Download full CSV"
+)
+```
+
+Downloads every row of `smf_roles.csv`, ignoring the filters above.
+
+Data: [FCA Financial Services Register](https://register.fca.org.uk/s/), individuals currently involved with each firm.
+
+# Results
+
+## Row {height=18%}
+
+```{ojs}
+stat = (label, value) => htl.html`<div style="flex:1; padding:0.6rem 1rem; border-radius:6px; background:#eef3f8">
+  <div style="font-size:0.85rem; color:#4a5a6a">${label}</div>
+  <div style="font-size:1.8rem; font-weight:600; color:#1f3b57">${value.toLocaleString()}</div>
+</div>`
+
+htl.html`<div style="display:flex; gap:1rem; height:100%; align-items:stretch">
+  ${stat("SMF roles", filtered.length)}
+  ${stat("Individuals", new Set(filtered.map(d => d.individual_id)).size)}
+  ${stat("Firms", new Set(filtered.map(d => d.frn)).size)}
+</div>`
+```
+
+## Row {height=82%}
+
+```{ojs}
+//| title: "SMF roles"
+Inputs.table(filtered, {
+  columns: ["firm_name", "smf_role", "name", "individual_id"],
+  header: {
+    firm_name: "Firm",
+    smf_role: "Role",
+    name: "Name",
+    individual_id: "Individual id"
+  },
+  rows: 30,
+  layout: "auto"
+})
+```

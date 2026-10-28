@@ -26,7 +26,7 @@ rows <- lapply(seq_along(frns), function(i) {
 })
 
 firms <- do.call(rbind, lapply(rows, as.data.frame))
-write.csv(firms, out_file, row.names = FALSE, na = "")
+write.csv(firms, out_file, row.names = FALSE, na = "", fileEncoding = "UTF-8")
 
 missing <- firms$frn[is.na(firms$company_id)]
 cat(sprintf("\nWrote %d rows to %s (%d not found)\n", nrow(firms), out_file, length(missing)))
