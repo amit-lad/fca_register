@@ -22,11 +22,13 @@ format:
 # Data comes from firm_roles_to_csv.R. Re-render after re-running it.
 roles <- read.csv("smf_roles.csv", colClasses = "character", encoding = "UTF-8")
 
-# The most recent date any firm in the file was scraped.
+# The most recent date anything in the file was scraped.
 last_updated <- format(max(as.Date(roles$scraped_on)), "%d %b %Y")
 ojs_define(last_updated = last_updated)
 
-roles <- roles[startsWith(roles$smf_role, "SMF"), ]
+# The file holds current and historic SMF roles; a role is current while it
+# has no end date. The sidebar toggle chooses which to show.
+roles$is_current <- roles$end_date == ""
 
 # Order roles SMF1, SMF2, ..., SMF20, SMF20a by number, then letter suffix.
 role_num <- as.integer(sub("^SMF(\\d+).*", "\\1", roles$smf_role))
@@ -35,7 +37,11 @@ roles$role_rank <- match(
   roles$smf_role,
   unique(roles$smf_role[order(role_num, role_suffix, roles$smf_role)])
 )
-roles <- roles[order(tolower(roles$firm_name), roles$role_rank, roles$name), ]
+# Within each firm and role: current holders first, then most recent start.
+roles <- roles[order(
+  tolower(roles$firm_name), roles$role_rank, !roles$is_current,
+  -xtfrm(roles$start_date), roles$name
+), ]
 ojs_define(roles_raw = roles)
 
 # The download button serves the file exactly as on disk, not the filtered view.
@@ -68,6 +74,8 @@ statBox = (icon, label, value) => htl.html`<div style="display: flex; flex-direc
 noSelectStyle = htl.html`<style>
   /* Hide the row-selection checkboxes Inputs.table adds as its first column. */
   .no-select table { width: 100%; }
+  /* Smaller cells so long names and roles fit; Inputs.table sets the size per cell. */
+  .no-select table td, .no-select table th { font-size: 13px; }
   .no-select thead th { white-space: normal; word-break: normal; overflow-wrap: normal; vertical-align: bottom; }
   .no-select table tr > :first-child { display: none; }
   /* Highlight the row under the pointer. */
@@ -100,8 +108,12 @@ fillCard = function(draw) {
   return container;
 }
 
-// Role choices follow the firm filter, so only roles that exist show.
-byFirm = data.filter(d => firm === "All firms" || d.firm_name === firm)
+formatDate = (iso) => iso ? d3.utcFormat("%d %b %Y")(d3.isoParse(iso)) : ""
+
+// Role choices follow the firm and current-only filters, so only roles that exist show.
+byFirm = data.filter(d =>
+  (firm === "All firms" || d.firm_name === firm) && (!currentOnly || d.is_current)
+)
 roleChoices = {
   const rank = new Map(byFirm.map(d => [d.smf_role, d.role_rank]));
   return [...rank.keys()].sort((a, b) => rank.get(a) - rank.get(b));
@@ -122,6 +134,7 @@ filtered = {
 # {.sidebar}
 
 ```{ojs}
+viewof currentOnly = Inputs.toggle({label: "Current roles only", value: true})
 viewof firm = Inputs.select(["All firms", ...uniq(data.map(d => d.firm_name))], {
   label: "Firm"
 })
@@ -150,7 +163,7 @@ viewof person = Inputs.text({
 
 Downloads every row of `smf_roles.csv`, ignoring the filters above.
 
-Data: [FCA Financial Services Register](https://register.fca.org.uk/s/), individuals currently involved with each firm.
+Data: [FCA Financial Services Register](https://register.fca.org.uk/s/), current and past SMF holders at each firm. A blank end date means the role is held now.
 
 # Results
 
@@ -181,15 +194,18 @@ fillCard((width, height) => htl.html`<div class="no-select">${noSelectStyle}
     height,
     // Render every row up front: lazy loading on scroll doesn't trigger inside dashboard cards.
     rows: filtered.length + 1,
-    columns: ["firm_name", "smf_role", "name", "individual_id"],
+    columns: ["firm_name", "smf_role", "name", "start_date", "end_date"],
     header: {
       firm_name: "Firm",
       smf_role: "Role",
       name: "Name",
-      individual_id: "Individual id"
+      start_date: "Start",
+      end_date: "End"
     },
+    // Dates stay ISO underneath, so sorting by a date column is chronological.
+    format: {start_date: formatDate, end_date: formatDate},
     // Fixed widths keep every column on screen; the last takes any spare width.
-    width: {firm_name: 280, smf_role: 280, name: 200},
+    width: {firm_name: 270, smf_role: 300, name: 210, start_date: 95},
     layout: "fixed"
   })}</div>`)
 ```

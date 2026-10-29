@@ -1,9 +1,14 @@
-# For every firm in firms.csv, list the roles held by individuals currently
-# involved with the firm, one row per person per role.
+# For every firm in firms.csv, list every SMF role held there, current and
+# historic, one row per role held by a person, with start and end dates.
+# Non-SMF roles are not collected.
 #
-# Every current role is included (not only SMF ones), and a role listed twice
-# for the same person is kept twice, as the register returns it. Each row's
-# scraped_on column is the UTC date its firm was fetched from the register.
+# Dates are only on each person's own register page, so this runs in two passes:
+#   1. Fetch each firm and note everyone whose current or previous roles there
+#      include an SMF role.
+#   2. Fetch each of those people once and keep their SMF roles at our firms.
+#
+# start_date is the date the role took effect. end_date is blank for roles held
+# now. scraped_on is the UTC date the person's page was fetched.
 #
 # Usage:  Rscript firm_roles_to_csv.R [firms.csv] [smf_roles.csv]
 
@@ -16,61 +21,84 @@ out_file <- if (length(args) > 1) args[2] else "smf_roles.csv"
 firms <- read.csv(in_file, colClasses = "character", encoding = "UTF-8")
 firms <- firms[firms$company_id != "", ]
 
-empty_roles <- data.frame(
-  smf_role = character(0), name = character(0),
-  individual_id = character(0), individual_ref = character(0)
-)
+is_smf <- function(role) startsWith(role %||% "", "SMF")
 
-# One row per (person, role) for a firm's current individuals.
-current_roles <- function(rv) {
-  rows <- lapply(rv$currentIndividualsList, function(p) {
-    roles <- vapply(
-      p$Approved_Controlled_Functions__r,
-      function(f) f$ShGl_InvolvementType__r$Name, ""
-    )
-    if (length(roles) == 0) return(NULL)
-    data.frame(
-      smf_role = roles,
-      name = p$Name,
-      individual_id = p$Id,
-      individual_ref = p$ShGl_IRN__c %||% NA_character_
-    )
+# Pass 1: people with an SMF role at any of our firms.
+failed_firms <- character(0)
+candidates <- character(0)
+for (i in seq_len(nrow(firms))) {
+  firm <- firms[i, ]
+  cat(sprintf("[firm %d/%d] %s %s\n", i, nrow(firms), firm$frn, firm$firm_name))
+  rv <- tryCatch(get_firm(firm$company_id), error = function(e) {
+    message("  failed: ", conditionMessage(e))
+    failed_firms <<- c(failed_firms, firm$frn)
+    NULL
   })
-  do.call(rbind, c(list(empty_roles), rows))
+  for (p in c(rv$currentIndividualsList, rv$historicIndividualsList)) {
+    roles <- vapply(p$Approved_Controlled_Functions__r, function(f) f$ShGl_InvolvementType__r$Name, "")
+    if (any(is_smf(roles))) candidates <- c(candidates, p$Id)
+  }
+  Sys.sleep(0.5) # be gentle with the register
+}
+candidates <- unique(candidates)
+cat(sprintf("\n%d people have held an SMF role at these firms\n\n", length(candidates)))
+
+# One row per SMF role at one of our firms.
+smf_rows <- function(rv, scraped_on) {
+  as_rows <- function(functions, current) {
+    keep <- Filter(function(f) {
+      is_smf(f$ShGl_InvolvementType__r$Name) && (f$ShGl_Account__c %||% "") %in% firms$company_id
+    }, functions)
+    lapply(keep, function(f) data.frame(
+      company_id = f$ShGl_Account__c,
+      smf_role = f$ShGl_InvolvementType__r$Name,
+      name = rv$cont$Name,
+      individual_id = rv$cont$Id,
+      individual_ref = rv$cont$ShGl_IRN__c %||% NA_character_,
+      start_date = f$ShGl_EffectiveDate__c %||% NA_character_,
+      end_date = if (current) NA_character_ else f$ShGl_InvolvementStatusEndDate__c %||% NA_character_,
+      scraped_on = scraped_on
+    ))
+  }
+  c(as_rows(rv$ContFunctionsList, TRUE), as_rows(rv$PreContFunctionsList, FALSE))
 }
 
-failed <- character(0)
-results <- lapply(seq_len(nrow(firms)), function(i) {
-  firm <- firms[i, ]
-  cat(sprintf("[%d/%d] %s %s\n", i, nrow(firms), firm$frn, firm$firm_name))
-  roles <- tryCatch(
-    current_roles(get_firm(firm$company_id)),
-    error = function(e) {
-      message("  failed: ", conditionMessage(e))
-      failed <<- c(failed, firm$frn)
-      empty_roles
-    }
-  )
+# Pass 2: each person's SMF roles, with dates.
+failed_people <- character(0)
+rows <- list()
+for (i in seq_along(candidates)) {
+  if (i %% 100 == 0 || i == length(candidates)) {
+    cat(sprintf("[person %d/%d]\n", i, length(candidates)))
+  }
+  rv <- tryCatch(get_individual(candidates[i]), error = function(e) {
+    message("  failed ", candidates[i], ": ", conditionMessage(e))
+    failed_people <<- c(failed_people, candidates[i])
+    NULL
+  })
+  if (!is.null(rv)) {
+    rows <- c(rows, smf_rows(rv, format(Sys.time(), "%Y-%m-%d", tz = "UTC")))
+  }
   Sys.sleep(0.5) # be gentle with the register
-  if (nrow(roles) == 0) return(NULL)
-  cbind(
-    firm[rep(1, nrow(roles)), c("frn", "firm_name", "company_id")],
-    roles,
-    scraped_on = format(Sys.time(), "%Y-%m-%d", tz = "UTC")
-  )
-})
+}
 
-out <- do.call(rbind, results)
+out <- merge(firms[, c("frn", "firm_name", "company_id")], do.call(rbind, rows), by = "company_id")
+out <- out[, c(
+  "frn", "firm_name", "company_id", "smf_role", "name", "individual_id",
+  "individual_ref", "start_date", "end_date", "scraped_on"
+)]
+out <- out[order(tolower(out$firm_name), out$smf_role, out$start_date, out$name), ]
 write.csv(out, out_file, row.names = FALSE, na = "", fileEncoding = "UTF-8")
 
-no_people <- setdiff(firms$frn, c(out$frn, failed))
 cat(sprintf(
-  "\nWrote %d rows for %d firms to %s\n",
-  nrow(out), length(unique(out$frn)), out_file
+  "\nWrote %d SMF roles (%d current, %d historic) for %d firms to %s\n",
+  nrow(out), sum(is.na(out$end_date)), sum(!is.na(out$end_date)),
+  length(unique(out$frn)), out_file
 ))
-if (length(no_people) > 0) cat("Firms with no current individuals:", no_people, "\n")
-if (length(failed) > 0) {
-  cat("Firms that failed to load:", failed, "\n")
+no_smf <- setdiff(firms$frn, c(out$frn, failed_firms))
+if (length(no_smf) > 0) cat("Firms with no SMF roles:", no_smf, "\n")
+if (length(failed_firms) > 0 || length(failed_people) > 0) {
+  if (length(failed_firms) > 0) cat("Firms that failed to load:", failed_firms, "\n")
+  if (length(failed_people) > 0) cat("People that failed to load:", failed_people, "\n")
   # Fail so an automated run doesn't commit a partial result.
   quit(status = 1)
 }
